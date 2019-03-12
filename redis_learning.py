@@ -98,7 +98,8 @@ def release_semaphore(connection, sem_name, identifier):
 
 
 # 3. 公平信号量
-def acquire_fair_semphore(connection, sem_name, limit, timeout=10):
+def acquire_fair_semaphore(connection, sem_name, limit, timeout=10):
+    """获取公平信号量: 维护了2个有序集合(超时有序集合及信号拥有者有序集合)和一个计时器"""
     identifier = str(uuid.uuid4())
     czset = sem_name + ':owner'
     counter_name = sem_name + ':counter'
@@ -126,4 +127,35 @@ def acquire_fair_semphore(connection, sem_name, limit, timeout=10):
     return None
 
 
+def release_fair_semaphore(connection, sem_name, identifier):
+    """释放公平信号量: 如果信号量被正确释放则返回True; 返回False表示信号量已经因为过期而被删除了"""
+    pipe = connection.pipeline(True)
+    pipe.zrem(sem_name, identifier)
+    pipe.zrem(sem_name + ':owner', identifier)
+    return pipe.execute()[0]
+
+
+def refresh_fair_semaphore(connection, sem_name, identifier):
+    """更新公平信号量: 如果信号量已经存在则刷新其超时时间;如果信号量已经因为超时而被删除则释放信号量"""
+    if connection.zadd(sem_name, identifier, time.time()):
+        refresh_fair_semaphore(connection, sem_name, identifier)
+        return False
+    return True
+
+
+"""上面的信号量(不公平及公平信号量)都还存在一个问题----竞争问题：
+   当两个进程A和B都尝试获取信号量时，即使A首先对计数器进行了自增操作，但是只要B能够抢先将自己的标识符添加到
+   有序集合里并检查标识符在有序集合中的排名，那么B就可以获取到信号量；之后当A也将自己的标识符放到有序集合并检查
+   标识符在集合中的排名时，A将偷走B获取的信号量，而B只有在释放或刷新信号量时才能觉察到.
+"""
+
+
+def acquire_semaphore_with_lock(connection, sem_name, limit, timeout=10):
+    """获取信号量首先获取一个带有短暂超时时间的锁."""
+    identifier = acquire_lock(connection, sem_name, acquire_timeout=.01)
+    if identifier:
+        try:
+            return acquire_fair_semaphore(connection, sem_name, limit, timeout)
+        finally:
+            release_lock(connection, sem_name, identifier)
 
