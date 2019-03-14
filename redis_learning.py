@@ -1,6 +1,7 @@
 # coding: utf-8
 
 import datetime
+import json
 import math
 import time
 import uuid
@@ -13,7 +14,7 @@ conn = redis.Redis(connection_pool=pool)
 
 
 # 1. 分布式锁
-def acquire_lock(connection, lock_name, acquire_timeout=10):
+def acquire_lock(connection, lock_name, acquire_timeout=10.0):
     """使用setnx命令获取锁,支持获取锁失败在一定时间内重试"""
     identifier = str(uuid.uuid4())
 
@@ -144,7 +145,7 @@ def refresh_fair_semaphore(connection, sem_name, identifier):
 
 
 """上面的信号量(不公平及公平信号量)都还存在一个问题----竞争问题：
-   当两个进程A和B都尝试获取信号量时，即使A首先对计数器进行了自增操作，但是只要B能够抢先将自己的标识符添加到
+   当两个进程A和B都尝试获取剩余的一个信号量时，即使A首先对计数器进行了自增操作，但是只要B能够抢先将自己的标识符添加到
    有序集合里并检查标识符在有序集合中的排名，那么B就可以获取到信号量；之后当A也将自己的标识符放到有序集合并检查
    标识符在集合中的排名时，A将偷走B获取的信号量，而B只有在释放或刷新信号量时才能觉察到.
 """
@@ -158,4 +159,50 @@ def acquire_semaphore_with_lock(connection, sem_name, limit, timeout=10):
             return acquire_fair_semaphore(connection, sem_name, limit, timeout)
         finally:
             release_lock(connection, sem_name, identifier)
+
+
+"""
+以聊天为背景，实现具有多个接受者的消息传递
+    群组有序集合记录参加群组的用户，其中有序集合的成员为用户的名字，成员分值则是用户在群组内接收到的最大消息ID;
+    用户有序集合记录用户参加的群组，其中有序集合的成员为群组ID，成员分值则是用户在群组内接收到的最大消息ID;
+    消息有序集合记录群组内发送的消息，其中有序集合的成员为消息体，成员分值则是消息ID.
+"""
+
+
+def send_message(connection, chat_id, sender, message):
+    """发送消息"""
+    identifier = acquire_lock(connection, 'chat:' + chat_id)
+    if not identifier:
+        raise Exception("Couldn't get the lock")
+
+    try:
+        # 生成新消息ID
+        mid = connection.incr('ids:' + chat_id)
+        ts = time.time()
+        packed = {
+            'id': mid,
+            'sender': sender,
+            'ts': ts,
+            'message': message
+        }
+        connection.zadd('msgs:' + chat_id, packed, mid)
+    finally:
+        release_lock(connection, 'chat:' + chat_id, identifier)
+
+
+def create_chat(connection, sender, recipients, message, chat_id=None):
+    """创建群组"""
+    # 获取一个新的chat ID
+    chat_id = chat_id or str(connection.incr('ids:chat:'))
+    recipients.append(sender)
+    recipientsd = dict((rec, 0) for rec in recipients)
+    pipe = connection.pipeline(True)
+    # 将所有参与群组的用户添加到有序集合
+    pipe.zadd('chat:' + chat_id, **recipientsd)
+    for r in recipients:
+        # 初始化已读有序集合
+        pipe.zadd('seen:' + r, chat_id, 0)
+    pipe.execute()
+    return send_message(connection, chat_id, sender, message)
+
 
