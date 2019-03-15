@@ -206,3 +206,31 @@ def create_chat(connection, sender, recipients, message, chat_id=None):
     return send_message(connection, chat_id, sender, message)
 
 
+def fetch_message(connection, recipient):
+    seen = connection.zrange('seen:' + recipient, 0, -1, withscores=True)
+    pipe = connection.pipeline(True)
+    # 获取用户每个群组的所有未读消息
+    for chat_id, seen_id in seen:
+        pipe.zrankbyscore('msgs:' + chat_id, seen_id + 1, 'inf')
+    chat_info = zip(seen, pipe.execute())
+
+    for i, ((chat_id, seen_id), messages) in enumerate(chat_info):
+        if not messages:
+            continue
+        messages[:] = map(json.loads, messages)
+        # 使用收到的最新消息更新群组有序集合
+        seen_id = messages[-1]['id']
+        # 更新用户已读消息集合
+        connection.zadd('chat:' + chat_id, recipient, seen_id)
+
+        min_id = connection.zrange('chat:' + chat_id, 0, 0, withscores=True)
+        pipe.zadd('seen:' + recipient, chat_id, seen_id)
+
+        if min_id:
+            # 清除所有人都阅读过的消息
+            pipe.zremrangebyscore('msgs:' + chat_id, 0, min_id[0][1])
+        chat_info[i] = (chat_id, messages)
+
+    pipe.execute()
+
+    return chat_info
