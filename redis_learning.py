@@ -3,6 +3,7 @@
 import datetime
 import json
 import math
+import re
 import time
 import uuid
 
@@ -212,7 +213,7 @@ def fetch_message(connection, recipient):
     # 获取用户每个群组的所有未读消息
     for chat_id, seen_id in seen:
         pipe.zrankbyscore('msgs:' + chat_id, seen_id + 1, 'inf')
-    chat_info = zip(seen, pipe.execute())
+    chat_info = list(zip(seen, pipe.execute()))
 
     for i, ((chat_id, seen_id), messages) in enumerate(chat_info):
         if not messages:
@@ -234,3 +235,202 @@ def fetch_message(connection, recipient):
     pipe.execute()
 
     return chat_info
+
+
+def join_chat(connection, chat_id, user):
+    """加入群组"""
+    mid = int(connection.get('ids:' + chat_id))
+
+    pipe = connection.pipeline(True)
+    pipe.zadd('chat:' + chat_id, user, mid)
+    pipe.zadd('seen:' + user, chat_id, mid)
+    pipe.execute()
+
+
+def left_chat(connection, chat_id, user):
+    """离开群组"""
+    pipe = connection.pipeline(True)
+    # 将用户从群组表删除并删除其用户表
+    pipe.zrem('chat:' + chat_id, user)
+    pipe.zrem('seen:' + user, chat_id)
+    # 获取群组用户量
+    pipe.zcard('chat:' + chat_id)
+
+    if not pipe.execute()[-1]:    # 如果已经没有别的用户
+        pipe.delete('msgs:' + chat_id)
+        pipe.delete('ids:' + chat_id)
+        pipe.execute()
+    else:
+        # 找出群组中被所有人都阅读过的消息,并删除
+        seen = connection.zrange('chat:' + chat_id, 0, 0, withscores=True)
+        connection.zremrangebyscore('chat:' + chat_id, 0, seen[0][1])
+
+
+"""
+基于redis的搜索
+"""
+
+
+STOP_WORDS = set('''able about across after all almost also am among
+an and any are as at be because been but by can cannot could dear did
+do does either else ever every for from get got had has have he her
+hers him his how however if in into is it its just least let like
+likely may me might most must my neither no nor not of off often on
+only or other our own rather said say says she should since so some
+than that the their them then there these they this tis to too twas us
+wants was we were what when where which while who whom why will with
+would yet you your'''.split())
+
+WORD_RE = re.compile("[a-z']{2,}")
+QUERY_RE = re.compile("[+-]?[a-z']{2,}")
+
+
+def tokenize(content):
+    """对文本内容进行标标记化处理"""
+    words = set()
+
+    for match in WORD_RE.finditer(content.lower()):
+        word = match.group().strip("'")
+        if len(word) > 2:
+            words.add(word)
+    return words - STOP_WORDS
+
+
+def index_document(connection, doc_id, content):
+    """对document建立反向索引"""
+    words = tokenize(content)
+
+    pipe = connection.pipeline(True)
+    for word in words:
+        pipe.sadd('idx:' + word, doc_id)
+    return len(pipe.execute())
+
+
+def _set_common(connection, method, names, ttl=30, execute=True):
+    """一个执行交集、并集、差集的辅助函数"""
+    idx = str(uuid.uuid4())
+
+    pipe = connection.pipeline(True) if execute else connection
+    names = ['idx:' + name for name in names]
+    # 为将要进行的集合操作设置相应的参数
+    getattr(pipe, method)('idx:' + idx, *names)
+    pipe.expire('idx:' + idx, ttl)
+    if execute:
+        pipe.execute()
+    return idx
+
+
+def intersect(connection, items, ttl=30, execute=True):
+    """并集计算"""
+    return _set_common(connection, 'sinterstore', items, ttl, execute)
+
+
+def union(connection, items, ttl=30, execute=True):
+    """交集计算"""
+    return _set_common(connection, 'sunionstore', items, ttl, execute)
+
+
+def difference(connection, items, ttl=30, execute=True):
+    """差集计算"""
+    return _set_common(connection, 'sdiffstore', items, ttl, execute)
+
+
+def parse(query):
+    """对搜索语句进行语法分析"""
+    # 存储不需要的单词
+    unwanted = set()
+    # 存储需要进行交集计算的单词
+    all = []
+    # 存储目前以发现的同义词
+    current = set()
+
+    for match in QUERY_RE.finditer(query.lower()):
+        word = match.group()
+        prefix = word[:1]
+        if prefix in '+-':
+            word = word[1:]
+        else:
+            prefix = None
+        word = word.strip("'")
+        if len(word) < 2 or word in STOP_WORDS:
+            continue
+        if prefix == '-':
+            unwanted.add(word)
+            continue
+
+        if current and not prefix:
+            # 如果在同义词集合不为空且遇到无+号前缀的单词时创建一个新的同义词集合
+            all.append(list(current))
+            current = set()
+        current.add(word)
+    if current:
+        all.append(list(current))
+    return all, list(unwanted)
+
+
+def parse_and_search(connection, query, ttl=30):
+    """分析查询语句并搜索文档"""
+    all, unwanted = parse(query)
+    if not all:
+        return None
+    to_intersect = []
+    for w in all:
+        if len(w) > 1:
+            # 如果同义词列表包含的单词不止一个则执行并集计算
+            to_intersect.append(union(connection, w, ttl))
+        else:
+            # 如果同义词列表只包含一个单词则使用改单词
+            to_intersect.append(w[0])
+    if len(to_intersect) > 1:
+        # 如果并集计算结果不止一个则执行交集计算
+        intersect_result = intersect(connection, to_intersect, ttl)
+    else:
+        # 如果并集计算结果只有一个则它就是交集计算结果
+        intersect_result = to_intersect[0]
+    if unwanted:
+        # 如果指定了不需要的单词则从交集计算结果中移除包含这些单词的文档
+        unwanted.insert(0, intersect_result)
+        return difference(connection, unwanted, ttl)
+    return intersect_result
+
+
+def search_and_sort(connection, query, id=None, ttl=300, sort='-updated', start=0, num=20):
+    """分析查询语句然后进行搜索，并对搜索结果进行排序"""
+    # 决定按照文档的哪个属性进行排序以及是升序还是倒序
+    desc = sort.startswith('-')
+    sort = sort.lstrip('-')
+    by = 'kb:doc:*->' + sort
+    # 排序是以数值形式还是字母形式
+    alpha = sort not in ('updated', 'id', 'created')
+    # 如果用户给定了搜索结果并且这个结果仍然存在，则延长过期时间
+    if id and not connection.expire(id, ttl):
+        id = None
+    # 如果没有给定已有的搜索结果则执行一次搜索
+    if not id:
+        id = parse_and_search(connection, query, ttl)
+
+    pipe = connection.pipeline(True)
+    # 获取结果集合的数量
+    pipe.scard('idx:' + id)
+    # 根据指定属性对结果进行排序
+    pipe.sort('idx:' + id, by=by, alpha=alpha, desc=desc, start=start, num=num)
+    results = pipe.execute()
+    # 返回搜索结果包含的元素数量，搜索结果本身以及搜索结果的id
+    return results[0], results[1], id
+
+
+"""使用有序集合对搜索结果进行排序"""
+
+
+def _zset_common(connection, method, scores, ttl=30, **kwargs):
+    id = str(uuid.uuid4())
+    execute = kwargs.pop('_execute', True)
+    pipe = connection.pipeline(True) if execute else connection
+    for key in scores.keys():
+        scores['idx:' + key] = scores.pop(key)
+    getattr(pipe, method)('idx:' + id, scores, **kwargs)
+    pipe.expire('idx:' + id, ttl)
+    if execute:
+        return pipe.execute()
+    return id
+
