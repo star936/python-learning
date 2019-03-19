@@ -422,6 +422,29 @@ def search_and_sort(connection, query, id=None, ttl=300, sort='-updated', start=
 """使用有序集合对搜索结果进行排序"""
 
 
+def search_and_zsort(connection, query, id=None, ttl=300, update=1, vote=0, start=0, num=20, desc=True):
+    """更新之后的函数可以进行搜索并同时基于投票数量和更新时间进行排序"""
+    # 刷新已有搜索结果的生存时间
+    if id and not connection.expire(id, ttl):
+        id = None
+    if not id:
+        id = parse_and_search(connection, query, ttl=ttl)
+        search_socres = {
+            id: 0,
+            'sort:update': update,
+            'sort:vote': vote
+        }
+        id = zintersect(connection, search_socres, ttl)
+    pipe = connection.pipeline(True)
+    pipe.zcard('idx:' + id)
+    if desc:
+        pipe.zrevrange('idx:' + id, start, start + num -1)
+    else:
+        pipe.zrange('idx:' + id, start, start + num - 1)
+    result = pipe.execute()
+    return result[0], result[1], id
+
+
 def _zset_common(connection, method, scores, ttl=30, **kwargs):
     id = str(uuid.uuid4())
     execute = kwargs.pop('_execute', True)
@@ -434,3 +457,10 @@ def _zset_common(connection, method, scores, ttl=30, **kwargs):
         return pipe.execute()
     return id
 
+
+def zintersect(connection, items, ttl=30, **kwargs):
+    return _zset_common(connection, 'zinterstore', dict(items), ttl, **kwargs)
+
+
+def zunion(connection, items, ttl=30, **kwargs):
+    return _zset_common(connection, 'zunionstore', dict(items), ttl, **kwargs)
