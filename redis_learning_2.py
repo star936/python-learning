@@ -1,8 +1,13 @@
 # coding: utf-8
 
+import datetime
+import binascii
+import math
 import time
+import uuid
 
 import redis
+from redis.exceptions import ResponseError
 
 from redis_learning import acquire_lock_with_timeout, release_lock
 
@@ -79,6 +84,26 @@ def create_status(connection, uid, message, **data):
     return sid
 
 
+def delete_status(connection, uid, sid):
+    """删除状态消息"""
+    key = 'status:%s' % sid
+    lock = acquire_lock_with_timeout(connection, key, 1)
+    if not lock:
+        return None
+    if connection.hget(key, 'uid') != uid:
+        release_lock(connection, key, lock)
+        return None
+    pipe = connection.pipeline(True)
+    pipe.delete(key)
+    pipe.zrem('profile:%s' % uid, sid)    # 从用户个人时间线移除被删除状态消息的ID
+    pipe.zrem('home:%s' % uid, sid)    # 从用户主页时间线移除被删除状态消息的ID
+    pipe.hincrby('user:%s' % uid, 'posts', -1)    # 对存储用户信息的散列进行更新，减少已发布状态消息的数量
+    pipe.execute()
+
+    release_lock(connection, key, lock)
+    return True
+
+
 def get_status_messages(connection, uid, timeline='home:', page=1, count=30):
     """默认从主页从时间线获取给定页数的最新状态消息，另外还可以获取个人时间线"""
     # 获取时间线上最新的状态消息ID
@@ -142,4 +167,87 @@ def unfollow_user(connection, uid, other_uid):
 
     pipe.execute()
     return True
+
+
+def shard_key(base, key, total_elements, shard_size):
+    """根据基础键以及散列包含的键计算分片键"""
+    if isinstance(key, int) or key.isdigit():
+        shard_id = int(str(key), 10)
+    else:
+        shards = 2 * total_elements // shard_size
+        shard_id = binascii.crc32(key) % shards
+
+    return '%s:%s' % (base, shard_id)
+
+
+def shard_hset(connection, base, key, value, total_elements, shard_size):
+    """分片式的hset函数"""
+    shard = shard_key(base, key, total_elements, shard_size)
+    return connection.hset(shard, key, value)
+
+
+def shard_hget(connection, base, key, total_elements, shard_size):
+    """分片式的hget函数"""
+    shard = shard_key(base, key, total_elements, shard_size)
+    return connection.hget(shard, key)
+
+
+def shard_sadd(connection, base, key, member, total_elements, shard_size):
+    """分片式sadd函数"""
+    shard = shard_key(base, 'x' + key, total_elements, shard_size)
+    return connection.sadd(shard, member)
+
+
+"""使用Lua脚本进行分布式锁的获取和释放"""
+
+
+def script_load(script):
+    sha = [None]
+
+    def call(connection, keys=[], args=[], force_eval=False):
+        if not force_eval:
+            if not sha[0]:
+                sha[0] = connection.execute_command('SCRIPT', 'LOAD', script, parse='LOAD')
+            try:
+                return connection.execute_command('EVALSHA', sha[0], len(keys), *(keys+args))
+            except ResponseError as e:
+                if not e.args[0].startwith('NOSCRIPT'):
+                    raise
+        return connection.execute_command('EVAL', script, len(keys), *(keys+args))
+    return call
+
+
+def acquire_lock_with_timeout_script(connection, lock_name, acquire_timeout=10, lock_timeout=10):
+    """获取锁, 支持锁超时"""
+    identifier = str(uuid.uuid4())
+    lock_name = 'lock:' + lock_name
+    lock_timeout = int(math.ceil(lock_timeout))
+
+    end = time.time() + acquire_timeout
+    acquired = False
+    while time.time() < end and not acquired:
+        acquired = acquire_lock_with_timeout_lua(connection, [lock_name], [lock_timeout, identifier]) == 'OK'
+        time.sleep(.001 * (not acquired))
+
+    return acquired and identifier
+
+
+acquire_lock_with_timeout_lua = script_load('''
+if redis.call('exists', KEYS[1]) == 0 then
+    return redis.call('setex', KEYS[1], unpack(ARGV))
+end
+''')
+
+
+def release_lock_script(connection, lock_name, identifier):
+    """释放锁"""
+    lock_name = 'lock:' + lock_name
+    return release_lock_lua(connection, [lock_name], [identifier])
+
+
+release_lock_lua = script_load('''
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1]) or true
+end
+''')
 
