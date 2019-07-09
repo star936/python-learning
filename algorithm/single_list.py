@@ -1,11 +1,6 @@
 # coding: utf-8
 
-
-class LNode(object):
-    """Node class"""
-    def __init__(self, elem, next_=None):
-        self.elem = elem
-        self.next_ = next_
+from .node import LNode
 
 
 class LinkedListUnderflow(ValueError):
