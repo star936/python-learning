@@ -1,10 +1,6 @@
 # coding: utf-8
 
-from .node import LNode
-
-
-class LinkedListUnderflow(ValueError):
-    pass
+from .node import LNode, LinkedListUnderflow
 
 
 class LList(object):

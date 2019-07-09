@@ -6,3 +6,7 @@ class LNode(object):
     def __init__(self, elem, next_=None):
         self.elem = elem
         self.next_ = next_
+
+
+class LinkedListUnderflow(ValueError):
+    pass
