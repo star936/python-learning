@@ -17,7 +17,9 @@ def naive_matching(s, sub):
     return -1
 
 
-"""KMP算法"""
+"""
+KMP算法: 算法讲解参考博客(https://www.cnblogs.com/ZuoAndFutureGirl/p/9028287.html)
+"""
 
 
 def gen_pnext(p):
