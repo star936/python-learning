@@ -6,6 +6,7 @@ class StackUnderflow(ValueError):
 
 
 class SStack(object):
+    """采用动态顺序表实现的栈"""
     def __init__(self):
         self._elems = []
 
