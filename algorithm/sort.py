@@ -11,3 +11,20 @@ def bubble_sort(arr):
                 found = True
         if not found:
             break
+
+
+def quick_sort(arr):
+    """快速排序"""
+    def qsort(arr, begin, end):
+        if begin >= end:
+            return
+        pivot = arr[begin]
+        i = begin
+        for j in range(begin+1, end+1):
+            if arr[j] < pivot:  # 发现小元素
+                i += 1
+                arr[i], arr[j] = arr[j], arr[i]  # 小元素换位
+        arr[begin], arr[i] = arr[i], arr[begin]  # 分界点就位
+        qsort(arr, begin, i-1)
+        qsort(arr, i+1, end)
+    qsort(arr, 0, len(arr) - 1)
