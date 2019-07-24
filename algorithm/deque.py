@@ -16,10 +16,25 @@ class Deque(object):
         self.items.insert(0, item)
 
     def remove_front(self):
-        self.items.pop()
+        return self.items.pop()
 
     def remove_rear(self):
-        self.items.pop(0)
+        return self.items.pop(0)
 
     def size(self):
         return len(self.items)
+
+
+def palchecker(s):
+    """利用deque解决回文词问题"""
+    char_deque = Deque()
+    for ch in s:
+        char_deque.add_rear(ch)
+    equal = True
+    while char_deque.size() > 1 and equal:
+        first = char_deque.remove_front()
+        end = char_deque.remove_rear()
+        if first != end:
+            equal = False
+    return equal
+
