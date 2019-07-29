@@ -28,3 +28,14 @@ def quick_sort(arr):
         qsort(arr, begin, i-1)
         qsort(arr, i+1, end)
     qsort(arr, 0, len(arr) - 1)
+
+
+def insert_sort(alist):
+    """插入排序"""
+    for index in range(1, len(alist)):
+        value = alist[index]
+        pos = index
+        while pos > 0 and alist[pos-1] > value:
+            alist[pos] = alist[pos-1]
+            pos = pos - 1
+            alist[pos] = value
