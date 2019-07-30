@@ -39,3 +39,23 @@ def insert_sort(alist):
             alist[pos] = alist[pos-1]
             pos = pos - 1
             alist[pos] = value
+
+
+def gap_insertion_sort(sub_list, start, gap):
+    for i in range(start+gap, len(sub_list), gap):
+        value = sub_list[i]
+        pos = i
+        while pos >= gap and sub_list[pos-gap] > value:
+            sub_list[pos] = sub_list[pos-gap]
+            pos = pos-gap
+            sub_list[pos] = value
+
+
+def shell_sort(alist):
+    sublist_count = len(alist) // 2
+    while sublist_count > 0:
+        for start_pos in range(sublist_count):
+            gap_insertion_sort(alist, start_pos, sublist_count)
+            print("After increments of size", sublist_count, "The list is", alist)
+        sublist_count = sublist_count // 2
+
