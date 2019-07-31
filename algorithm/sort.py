@@ -52,6 +52,7 @@ def gap_insertion_sort(sub_list, start, gap):
 
 
 def shell_sort(alist):
+    """希尔排序"""
     sublist_count = len(alist) // 2
     while sublist_count > 0:
         for start_pos in range(sublist_count):
