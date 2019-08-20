@@ -1,5 +1,7 @@
 # coding: utf-8
 
+"""如何使用集合提升性能"""
+
 from dataclasses import dataclass, field
 
 
