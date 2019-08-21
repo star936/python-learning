@@ -1,16 +1,12 @@
 # coding: utf-8
 
-import datetime
 import binascii
 import math
+import redis
 import time
 import uuid
 
-import redis
-from redis.exceptions import ResponseError
-
-from redis_learning import acquire_lock_with_timeout, release_lock
-
+from nosql.redis import acquire_lock_with_timeout, release_lock
 
 pool = redis.ConnectionPool(host='localhost', port=6379)
 conn = redis.Redis(connection_pool=pool)
@@ -46,15 +42,16 @@ def create_user(connection, login, name):
     uid = connection.incr('user:id:')
     pipe = connection.pipeline(True)
     pipe.hset('users:', llogin, uid)
-    pipe.hmset('user:%s' % uid, {
-        'login': login,
-        'name': name,
-        'id': uid,
-        'followers': 0,
-        'following': 0,
-        'posts': 0,
-        'signup': time.time()
-    })
+    pipe.hmset(
+        'user:%s' % uid, {
+            'login': login,
+            'name': name,
+            'id': uid,
+            'followers': 0,
+            'following': 0,
+            'posts': 0,
+            'signup': time.time()
+        })
     pipe.execute()
     release_lock(connection, 'user:' + llogin, lock)
     return uid
@@ -107,7 +104,8 @@ def delete_status(connection, uid, sid):
 def get_status_messages(connection, uid, timeline='home:', page=1, count=30):
     """默认从主页从时间线获取给定页数的最新状态消息，另外还可以获取个人时间线"""
     # 获取时间线上最新的状态消息ID
-    statuses = connection.zrevrange('%s%s' % (timeline, uid), (page-1) * count, page * count -1)
+    statuses = connection.zrevrange('%s%s' % (timeline, uid),
+                                    (page - 1) * count, page * count - 1)
     pipe = connection.pipeline(True)
     for sid in statuses:
         pipe.hgetall('status:%s' % sid)
@@ -122,14 +120,18 @@ def follower_user(connection, uid, other_uid):
     fkey1 = 'following:%s' % uid
     fkey2 = 'followers:%s' % other_uid
 
-    if connection.zscore(fkey1, other_uid):    # 如果uid指定的用户已经关注了other_uid指定的用户，则不重复关注
+    if connection.zscore(fkey1,
+                         other_uid):    # 如果uid指定的用户已经关注了other_uid指定的用户，则不重复关注
         return None
     now = time.time()
     pipe = connection.pipeline(True)
     pipe.zadd(fkey1, other_uid, now)
     pipe.zadd(fkey2, uid, now)
 
-    pipe.zrevrange('profile:%s' % other_uid, 0, HOME_TIMELINE_SIZE - 1, withscores=True)
+    pipe.zrevrange('profile:%s' % other_uid,
+                   0,
+                   HOME_TIMELINE_SIZE - 1,
+                   withscores=True)
     following, followers, status_and_socre = pipe.execute()
     # 修改两个用户的散列，更新他们的正在关注数量和关注者数量
     pipe.hincrby('user:%s' % uid, 'following', int(following))
@@ -149,13 +151,17 @@ def unfollow_user(connection, uid, other_uid):
     fkey1 = 'following:%s' % uid
     fkey2 = 'followers:%s' % other_uid
 
-    if not connection.zscore(fkey1, other_uid):    # 如果uid指定的用户已经取消关注了other_uid指定的用户，则不重复取消关注
+    if not connection.zscore(
+            fkey1, other_uid):    # 如果uid指定的用户已经取消关注了other_uid指定的用户，则不重复取消关注
         return None
 
     pipe = connection.pipeline(True)
     pipe.zrem(fkey1, other_uid)
     pipe.zrem(fkey2, uid)
-    pipe.zrevrange('profile:%s' % other_uid, 0, HOME_TIMELINE_SIZE - 1, withscores=True)
+    pipe.zrevrange('profile:%s' % other_uid,
+                   0,
+                   HOME_TIMELINE_SIZE - 1,
+                   withscores=True)
     following, followers, statuses = pipe.execute()[-3:]
 
     # 修改两个用户的散列，更新他们的正在关注数量和关注者数量
@@ -207,17 +213,26 @@ def script_load(script):
     def call(connection, keys=[], args=[], force_eval=False):
         if not force_eval:
             if not sha[0]:
-                sha[0] = connection.execute_command('SCRIPT', 'LOAD', script, parse='LOAD')
+                sha[0] = connection.execute_command('SCRIPT',
+                                                    'LOAD',
+                                                    script,
+                                                    parse='LOAD')
             try:
-                return connection.execute_command('EVALSHA', sha[0], len(keys), *(keys+args))
-            except ResponseError as e:
+                return connection.execute_command('EVALSHA', sha[0], len(keys),
+                                                  *(keys + args))
+            except redis.ResponseError as e:
                 if not e.args[0].startwith('NOSCRIPT'):
                     raise
-        return connection.execute_command('EVAL', script, len(keys), *(keys+args))
+        return connection.execute_command('EVAL', script, len(keys),
+                                          *(keys + args))
+
     return call
 
 
-def acquire_lock_with_timeout_script(connection, lock_name, acquire_timeout=10, lock_timeout=10):
+def acquire_lock_with_timeout_script(connection,
+                                     lock_name,
+                                     acquire_timeout=10,
+                                     lock_timeout=10):
     """获取锁, 支持锁超时"""
     identifier = str(uuid.uuid4())
     lock_name = 'lock:' + lock_name
@@ -226,7 +241,8 @@ def acquire_lock_with_timeout_script(connection, lock_name, acquire_timeout=10, 
     end = time.time() + acquire_timeout
     acquired = False
     while time.time() < end and not acquired:
-        acquired = acquire_lock_with_timeout_lua(connection, [lock_name], [lock_timeout, identifier]) == 'OK'
+        acquired = acquire_lock_with_timeout_lua(
+            connection, [lock_name], [lock_timeout, identifier]) == 'OK'
         time.sleep(.001 * (not acquired))
 
     return acquired and identifier
@@ -250,4 +266,3 @@ if redis.call('get', KEYS[1]) == ARGV[1] then
     return redis.call('del', KEYS[1]) or true
 end
 ''')
-

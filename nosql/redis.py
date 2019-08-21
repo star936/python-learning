@@ -4,11 +4,9 @@ import datetime
 import json
 import math
 import re
+import redis
 import time
 import uuid
-
-import redis
-
 
 pool = redis.ConnectionPool(host='localhost', port=6379)
 conn = redis.Redis(connection_pool=pool)
@@ -27,7 +25,10 @@ def acquire_lock(connection, lock_name, acquire_timeout=10.0):
     return False
 
 
-def acquire_lock_with_timeout(connection, lock_name, acquire_timeout=10, lock_timeout=10):
+def acquire_lock_with_timeout(connection,
+                              lock_name,
+                              acquire_timeout=10,
+                              lock_timeout=10):
     """获取锁, 支持锁超时"""
     identifier = str(uuid.uuid4())
     lock_name = 'lock:' + lock_name
@@ -35,7 +36,8 @@ def acquire_lock_with_timeout(connection, lock_name, acquire_timeout=10, lock_ti
 
     end = time.time() + acquire_timeout
     while time.time() < end:
-        if connection.set(lock_name, identifier, datetime.timedelta(seconds=lock_timeout)):
+        if connection.set(lock_name, identifier,
+                          datetime.timedelta(seconds=lock_timeout)):
             # connection.expire(lock_name, lock_timeout)
             return identifier
         elif not connection.ttl(lock_name):
@@ -72,8 +74,8 @@ def acquire_semaphore(connection, sem_name, limit, timeout=10):
     now = time.time()
 
     pipe = connection.pipeline(True)
-    pipe.zremrangebyscore(sem_name, '-inf', now - timeout)  # 清除过期的信号持有者
-    pipe.zadd(sem_name, identifier, now)  # 尝试获取信号量
+    pipe.zremrangebyscore(sem_name, '-inf', now - timeout)    # 清除过期的信号持有者
+    pipe.zadd(sem_name, identifier, now)    # 尝试获取信号量
     # 检查是否成功获取了信号
     pipe.zrank(sem_name, identifier)
     if pipe.execute()[-1] < limit:
@@ -109,7 +111,7 @@ def acquire_fair_semaphore(connection, sem_name, limit, timeout=10):
     now = time.time()
     pipe = connection.pipeline(True)
     # 删除超时信号量
-    pipe.zremrangebyscore(sem_name, '-inf', now - timeout)  # 清除过期的信号持有者
+    pipe.zremrangebyscore(sem_name, '-inf', now - timeout)    # 清除过期的信号持有者
     pipe.zinterstore(czset, {czset: 1, counter_name: 0})
 
     # 对计数器执行自增操作，并获取自增之后的值
@@ -180,12 +182,7 @@ def send_message(connection, chat_id, sender, message):
         # 生成新消息ID
         mid = connection.incr('ids:' + chat_id)
         ts = time.time()
-        packed = {
-            'id': mid,
-            'sender': sender,
-            'ts': ts,
-            'message': message
-        }
+        packed = {'id': mid, 'sender': sender, 'ts': ts, 'message': message}
         connection.zadd('msgs:' + chat_id, packed, mid)
     finally:
         release_lock(connection, 'chat:' + chat_id, identifier)
@@ -269,7 +266,6 @@ def left_chat(connection, chat_id, user):
 """
 基于redis的搜索
 """
-
 
 STOP_WORDS = set('''able about across after all almost also am among
 an and any are as at be because been but by can cannot could dear did
@@ -394,7 +390,13 @@ def parse_and_search(connection, query, ttl=30):
     return intersect_result
 
 
-def search_and_sort(connection, query, id=None, ttl=300, sort='-updated', start=0, num=20):
+def search_and_sort(connection,
+                    query,
+                    id=None,
+                    ttl=300,
+                    sort='-updated',
+                    start=0,
+                    num=20):
     """分析查询语句然后进行搜索，并对搜索结果进行排序"""
     # 决定按照文档的哪个属性进行排序以及是升序还是倒序
     desc = sort.startswith('-')
@@ -422,23 +424,27 @@ def search_and_sort(connection, query, id=None, ttl=300, sort='-updated', start=
 """使用有序集合对搜索结果进行排序"""
 
 
-def search_and_zsort(connection, query, id=None, ttl=300, update=1, vote=0, start=0, num=20, desc=True):
+def search_and_zsort(connection,
+                     query,
+                     id=None,
+                     ttl=300,
+                     update=1,
+                     vote=0,
+                     start=0,
+                     num=20,
+                     desc=True):
     """更新之后的函数可以进行搜索并同时基于投票数量和更新时间进行排序"""
     # 刷新已有搜索结果的生存时间
     if id and not connection.expire(id, ttl):
         id = None
     if not id:
         id = parse_and_search(connection, query, ttl=ttl)
-        search_socres = {
-            id: 0,
-            'sort:update': update,
-            'sort:vote': vote
-        }
+        search_socres = {id: 0, 'sort:update': update, 'sort:vote': vote}
         id = zintersect(connection, search_socres, ttl)
     pipe = connection.pipeline(True)
     pipe.zcard('idx:' + id)
     if desc:
-        pipe.zrevrange('idx:' + id, start, start + num -1)
+        pipe.zrevrange('idx:' + id, start, start + num - 1)
     else:
         pipe.zrange('idx:' + id, start, start + num - 1)
     result = pipe.execute()

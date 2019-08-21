@@ -9,6 +9,7 @@ motor = "*"
 requests = "*"
 yapf = "*"
 lxml = "*"
+redis = "*"
 
 [dev-packages]
 
