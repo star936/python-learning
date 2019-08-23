@@ -3,7 +3,7 @@
 from cases.itertools import grouper, group_bills_to_100, evens, odds, chain_repeat_slice
 
 
-class TestIterTools():
+class TestIterTools(object):
     def test_groper(self):
         num = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         real = grouper(num, 4, fillvalue=None)

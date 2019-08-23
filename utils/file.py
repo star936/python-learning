@@ -2,6 +2,7 @@
 
 import fcntl
 from functools import partial
+import pandas as pd
 
 
 def chunked_file_reader(file, block_size=1024 * 8):
@@ -31,3 +32,8 @@ class Lock:
     def release(self):
         fcntl.flock(self.handle, fcntl.LOCK_UN)
         self.handle.close()
+
+
+def download_csv(path, filename):
+    df = pd.read_csv(path)
+    df.to_csv(filename)
