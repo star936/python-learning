@@ -12,6 +12,7 @@ lxml = "*"
 redis = "*"
 pytest = "*"
 pandas = "*"
+psycopg2 = "*"
 
 [dev-packages]
 
