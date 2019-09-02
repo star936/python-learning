@@ -13,6 +13,8 @@ redis = "*"
 pytest = "*"
 pandas = "*"
 psycopg2 = "*"
+"py4j" = "*"
+psutil = "*"
 
 [dev-packages]
 
