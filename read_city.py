@@ -45,15 +45,18 @@ def executemany(cur):
     cur.executemany(pg_sql, data)
 
 
-def copy_from(cur, filename):
-    values = cur.fetchall()
-    df = pd.DataFrame(values, columns=['id', 'country', 'state', 'city',
-                                       'zip', 'latitude', 'longitude'])
+def copy_from(filename):
+    values = cursor.fetchall()
+    df = pd.DataFrame(values,
+                      columns=[
+                          'id', 'country', 'state', 'city', 'zip', 'latitude',
+                          'longitude'
+                      ])
     df.to_csv(filename, index=False)
 
     with open(filename, 'r') as f:
-        next(f)   # 跳过header
-        cur.copy_from(f, 'city', sep=',')
+        next(f)    # 跳过header
+        pg_cur.copy_from(f, 'city', sep=',')
 
 
 if __name__ == '__main__':
@@ -62,8 +65,7 @@ if __name__ == '__main__':
     # executemany(cursor)
 
     # 第二种方法
-    copy_from(cursor, 'city.csv')
+    copy_from('city.csv')
     conn.close()
     pg_conn.commit()
     pg_conn.close()
-
