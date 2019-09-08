@@ -1,5 +1,6 @@
 # coding: utf-8
 
+
 from pyspark import SparkContext, SparkConf
 
 
@@ -34,8 +35,8 @@ def set_path(sc):
 
 if __name__ == '__main__':
     print('start')
-    sc = create_spark_context()
-    textFile = sc.textFile(Path + "wordcount.txt")
+    sc, path = create_spark_context()
+    textFile = sc.textFile(path + "wordcount.txt")
     print('file has {} lines'.format(textFile.count()))
 
     countRDD = textFile.flatMap(lambda line: line.split(','))\

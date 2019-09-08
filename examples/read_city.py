@@ -19,7 +19,7 @@ pg_cur = pg_conn.cursor()
 
 pg_sql = "INSERT INTO city(id, country, state, city, zip, latitude, longitude) VALUES (%s, %s, %s, %s, %s, %s, %s)"
 
-conn = sqlite3.connect('City.sqlite')
+conn = sqlite3.connect('../data/City.sqlite')
 
 cursor = conn.cursor()
 
@@ -65,7 +65,7 @@ if __name__ == '__main__':
     # executemany(cursor)
 
     # 第二种方法
-    copy_from('city.csv')
+    copy_from('../data/city.csv')
     conn.close()
     pg_conn.commit()
     pg_conn.close()
