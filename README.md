@@ -8,4 +8,4 @@
 
 * [Python：鲜为人知的功能特性（上）](https://juejin.im/post/5c789608f265da2dae51384d)
 * [Python：鲜为人知的功能特性（下）](https://juejin.im/post/5c7beef96fb9a049d44288f6)
-* 
+* [在 Flask 中使用 Redis Queue 实现异步任务](https://juejin.im/post/5c407497e51d457cba6ca871)
