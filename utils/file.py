@@ -37,3 +37,18 @@ class Lock:
 def download_csv(path, filename):
     df = pd.read_csv(path)
     df.to_csv(filename)
+
+
+def read(f, chunk_size= 4096*10, separator='|'):
+    """利用生成器进行大文读取件"""
+    buf = ""
+    while True:
+        while separator in buf:
+            pos = buf.index(separator)
+            yield buf[:pos]
+            buf = buf[pos+len(separator):]
+        chunk = f.read(chunk_size)
+        if not chunk:
+            yield buf
+            break
+        buf += chunk
