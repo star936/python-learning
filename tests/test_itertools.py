@@ -1,6 +1,6 @@
 # coding: utf-8
 
-from cases.itertools import grouper, group_bills_to_100, evens, odds, chain_repeat_slice
+from examples.itertools import grouper, group_bills_to_100, evens, odds, chain_repeat_slice
 
 
 class TestIterTools(object):
