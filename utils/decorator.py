@@ -1,6 +1,7 @@
 # coding: utf-8
 
 import time
+import threading
 import functools
 
 
@@ -91,6 +92,17 @@ def retry(times, traced_exceptions=None, reraise_exception=None):
         return wrapper
 
     return decorator
+
+
+class Singleton(object):
+    _lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, '_instance'):
+            with cls._lock:
+                if not hasattr(cls, '_instance'):
+                    cls._instance = super().__new__(cls)
+        return cls._instance
 
 
 if __name__ == '__main__':
