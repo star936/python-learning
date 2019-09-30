@@ -1,5 +1,0 @@
-# Title
-
-# Environment
-
-# Bug Description
