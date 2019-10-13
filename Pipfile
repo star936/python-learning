@@ -15,6 +15,7 @@ pandas = "*"
 psycopg2 = "*"
 "py4j" = "*"
 psutil = "*"
+scrapy = "*"
 
 [dev-packages]
 
