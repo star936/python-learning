@@ -16,6 +16,7 @@ psycopg2 = "*"
 "py4j" = "*"
 psutil = "*"
 scrapy = "*"
+scrapy-redis = "*"
 
 [dev-packages]
 

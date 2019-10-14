@@ -63,9 +63,9 @@ DOWNLOADER_MIDDLEWARES = {
 
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
-ITEM_PIPELINES = {
-   'fang.pipelines.FangPipeline': 300,
-}
+# ITEM_PIPELINES = {
+#    'fang.pipelines.FangPipeline': 300,
+# }
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html
@@ -88,3 +88,15 @@ ITEM_PIPELINES = {
 # HTTPCACHE_IGNORE_HTTP_CODES = []
 # HTTPCACHE_STORAGE = 'scrapy.extensions.httpcache.FilesystemCacheStorage'
 
+# scrapy-redis的设置
+# 确保request存储到redis中
+SCHEDULER = 'scrapy_redis.scheduler.Scheduler'
+DUPEFILTER_CLASS = 'scrapy_redis.dupefilter.RFPDupeFilter'
+ITEM_PIPELINES = {
+   'scrapy_redis.pipelines.RedisPipeline': 300,
+}
+# 在redis保持scrapy-redis用到的队列，不会清理
+SCHEDULER_PERSIST = True
+# redis的设置
+REDIS_HOST = '127.0.0.1'
+REDIS_PORT = 6379
